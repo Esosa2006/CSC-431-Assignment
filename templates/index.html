@@ -1,0 +1,146 @@
+<!-- templates/index.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>ZOF - Root Finding Web GUI</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    /* Minimal inline fallback styling in case static CSS isn't loaded */
+    body { font-family: Arial, sans-serif; background:#f6f8fb; color:#222; padding:20px; }
+    .container { max-width: 900px; margin: 0 auto; background: #fff; border-radius:8px; padding:20px; box-shadow:0 6px 18px rgba(0,0,0,0.08);}
+    input, textarea, select { width:100%; padding:8px; margin:6px 0 12px 0; box-sizing:border-box; border:1px solid #ddd; border-radius:6px; }
+    label { font-weight:600; }
+    .row { display:flex; gap:12px; }
+    .col { flex:1; }
+    .btn { background:#1e3c72; color:white; padding:10px 14px; border:none; border-radius:6px; cursor:pointer; }
+    .btn:disabled { opacity:0.6 }
+    table { width:100%; border-collapse:collapse; margin-top:12px; }
+    th, td { padding:8px; border:1px solid #eee; text-align:center; font-size:0.95em; }
+    .alert { background:#fff3cd; border:1px solid #ffd966; padding:10px; border-radius:6px; margin-bottom:12px; }
+    .danger { background:#ffe6e6; border:1px solid #ffb3b3;}
+    .success { background:#e6ffea; border:1px solid #b3ffcd;}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>ZOF — Root Finding Web GUI</h1>
+    <p>Choose a method and enter polynomial coefficients (highest degree first) or method-specific inputs.</p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for cat, msg in messages %}
+          <div class="alert {{ 'danger' if cat=='danger' else '' }}">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="post" action="{{ url_for('solve') }}">
+      <label for="method">Method</label>
+      <select id="method" name="method" required onchange="onMethodChange()">
+        <option value="1" {% if result and result.method==1 %}selected{% endif %}>1. Bisection</option>
+        <option value="2" {% if result and result.method==2 %}selected{% endif %}>2. Regula Falsi</option>
+        <option value="3" {% if result and result.method==3 %}selected{% endif %}>3. Secant</option>
+        <option value="4" {% if result and result.method==4 %}selected{% endif %}>4. Newton–Raphson</option>
+        <option value="5" {% if result and result.method==5 %}selected{% endif %}>5. Fixed Point Iteration</option>
+        <option value="6" {% if result and result.method==6 %}selected{% endif %}>6. Modified Secant</option>
+      </select>
+
+      <label for="coeffs">Polynomial coefficients (highest degree first) — space or comma separated</label>
+      <input id="coeffs" name="coeffs" placeholder="e.g. 1 -3 2 for x^2 - 3x + 2" value="{{ result.coeffs_text if result else '' }}">
+
+      <div class="row">
+        <div class="col">
+          <label for="a">a (interval / x0)</label>
+          <input id="a" name="a" placeholder="a (e.g. 1)">
+        </div>
+        <div class="col">
+          <label for="b">b (interval / x1)</label>
+          <input id="b" name="b" placeholder="b (e.g. 3)">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <label for="x0">x0 (initial guess)</label>
+          <input id="x0" name="x0" placeholder="x0 (for secant/newton/fixed)">
+        </div>
+        <div class="col">
+          <label for="x1">x1 (second guess)</label>
+          <input id="x1" name="x1" placeholder="x1 (for secant)">
+        </div>
+      </div>
+
+      <label for="delta">delta (for modified secant)</label>
+      <input id="delta" name="delta" placeholder="e.g. 0.01">
+
+      <label for="g_expr">g(x) for Fixed Point (example: "math.cos(x)" or "0.5*(x+2/x)")</label>
+      <input id="g_expr" name="g_expr" placeholder='g(x) expression (use math.<fn> for functions)' value="{{ result.g_expr if result else '' }}">
+
+      <div class="row">
+        <div class="col">
+          <label for="tol">Tolerance</label>
+          <input id="tol" name="tol" placeholder="1e-6" value="1e-6">
+        </div>
+        <div class="col">
+          <label for="max_iter">Max iterations</label>
+          <input id="max_iter" name="max_iter" placeholder="50" value="50">
+        </div>
+      </div>
+
+      <button class="btn" type="submit">Compute</button>
+    </form>
+
+    {% if result %}
+      <hr>
+      <h2>Result</h2>
+      {% if result.root is not none %}
+        <div class="success">Estimated root: <strong>{{ result.root }}</strong> | Final error: <strong>{{ result.final_error }}</strong> | Iterations: <strong>{{ result.iterations }}</strong></div>
+      {% else %}
+        <div class="alert danger">No root found / method error.</div>
+      {% endif %}
+
+      <h3>Iteration Log</h3>
+      <table>
+        <thead>
+          <tr>
+            {% if result.method == 1 %}
+              <th>Iter</th><th>a</th><th>b</th><th>c</th><th>f(c)</th><th>Error</th>
+            {% elif result.method == 2 %}
+              <th>Iter</th><th>a</th><th>b</th><th>x</th><th>f(x)</th><th>Error</th>
+            {% elif result.method == 3 %}
+              <th>Iter</th><th>x0</th><th>x1</th><th>x2</th><th>f(x2)</th><th>Error</th>
+            {% elif result.method == 4 %}
+              <th>Iter</th><th>x</th><th>f(x)</th><th>f'(x)</th><th>x_new</th><th>Error</th>
+            {% elif result.method == 5 %}
+              <th>Iter</th><th>x</th><th>g(x)</th><th>Error</th>
+            {% elif result.method == 6 %}
+              <th>Iter</th><th>x</th><th>f(x)</th><th>x_new</th><th>Error</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in result.rows %}
+            <tr>
+            {% if r[0] == "error" %}
+              <td colspan="6">{{ r[1] }}</td>
+            {% else %}
+              {% for cell in r %}
+                <td>{{ "%.8g"|format(cell) if cell is number else cell }}</td>
+              {% endfor %}
+            {% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </div>
+
+<script>
+function onMethodChange(){
+  // simple client-side hinting could be added here; for now we keep all fields visible
+}
+</script>
+</body>
+</html>
